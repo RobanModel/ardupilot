@@ -287,6 +287,121 @@ class AutoTestHelicopter(AutoTestCopter):
 
         self.land_and_disarm()
 
+    def signed_heading_delta(self, heading_from, heading_to):
+        '''return signed difference between two headings in degrees, positive is clockwise'''
+        return ((heading_to - heading_from + 180.0) % 360.0) - 180.0
+
+    def bank_steer_forward_flight(self, min_groundspeed=6):
+        '''establish forward flight fast enough to set the dynamic-flight flag'''
+        self.set_rc(2, 1300)
+        self.wait_groundspeed(min_groundspeed, 100, timeout=30)
+        self.delay_sim_time(3, reason="dynamic flight flag to set")
+
+    def BankSteerDisabled(self):
+        '''HELI_BANK_STEER disabled: banked forward flight must not create yaw'''
+        # HELI_BANK_STEER defaults to 0; make sure of it anyway
+        self.set_parameter("HELI_BANK_STEER", 0)
+        self.takeoff(10, mode="ALT_HOLD")
+
+        self.bank_steer_forward_flight()
+        alt_start = self.get_altitude(relative=True)
+        hdg_start = self.get_heading()
+
+        self.progress("Banking right with turn assist disabled")
+        self.set_rc(1, 1800)
+        self.delay_sim_time(4)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        alt_delta = self.get_altitude(relative=True) - alt_start
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+
+        self.progress("Disabled: heading delta %.1f deg, altitude delta %.1f m" % (hdg_delta, alt_delta))
+        if abs(hdg_delta) > 15:
+            raise NotAchievedException("Yaw with assist disabled (%.1f deg)" % hdg_delta)
+        if abs(alt_delta) > 5:
+            raise NotAchievedException("AltHold altitude not held (%.1f m)" % alt_delta)
+
+        self.land_and_disarm()
+
+    def BankSteerAssist(self):
+        '''HELI_BANK_STEER enabled: coordinated turns in AltHold and Loiter, hover safety, pilot override, failsafe'''
+        self.set_parameter("HELI_BANK_STEER", 1)
+        self.takeoff(10, mode="ALT_HOLD")
+
+        # roll input while hovering must not create yaw
+        self.progress("Checking no automatic yaw in hover")
+        hdg_start = self.get_heading()
+        self.set_rc(1, 1700)
+        self.delay_sim_time(2)
+        self.set_rc(1, 1500)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        self.progress("Hover: heading delta %.1f deg" % hdg_delta)
+        if abs(hdg_delta) > 10:
+            raise NotAchievedException("Automatic yaw in hover (%.1f deg)" % hdg_delta)
+
+        # coordinated turn in AltHold forward flight
+        self.progress("Checking coordinated turn in ALT_HOLD forward flight")
+        self.bank_steer_forward_flight()
+        alt_start = self.get_altitude(relative=True)
+        hdg_start = self.get_heading()
+        self.set_rc(1, 1800)
+        self.delay_sim_time(4)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        alt_delta = self.get_altitude(relative=True) - alt_start
+        self.progress("AltHold: heading delta %.1f deg, altitude delta %.1f m" % (hdg_delta, alt_delta))
+        if hdg_delta < 40:
+            raise NotAchievedException("Insufficient coordinated yaw in AltHold (%.1f deg)" % hdg_delta)
+        if abs(alt_delta) > 5:
+            raise NotAchievedException("AltHold altitude not held (%.1f m)" % alt_delta)
+
+        # pilot rudder override against the automatic yaw
+        self.progress("Checking pilot rudder override dominates")
+        hdg_start = self.get_heading()
+        self.set_rc(4, 1200)  # left rudder against right-bank auto yaw
+        self.delay_sim_time(2)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        self.set_rc(4, 1500)
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+        self.progress("Override: heading delta %.1f deg" % hdg_delta)
+        if hdg_delta > -10:
+            raise NotAchievedException("Pilot rudder did not dominate (%.1f deg)" % hdg_delta)
+
+        # coordinated turn in Loiter
+        self.progress("Checking coordinated turn in LOITER")
+        self.change_mode('LOITER')
+        self.wait_groundspeed(0, 1.5, timeout=30)
+        hdg_start = self.get_heading()
+        self.delay_sim_time(5)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        self.progress("Loiter hover: heading delta %.1f deg" % hdg_delta)
+        if abs(hdg_delta) > 10:
+            raise NotAchievedException("Automatic yaw in Loiter hover (%.1f deg)" % hdg_delta)
+
+        self.bank_steer_forward_flight()
+        hdg_start = self.get_heading()
+        self.set_rc(1, 1800)
+        self.delay_sim_time(4)
+        hdg_delta = self.signed_heading_delta(hdg_start, self.get_heading())
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+        self.progress("Loiter: heading delta %.1f deg" % hdg_delta)
+        if hdg_delta < 30:
+            raise NotAchievedException("Insufficient coordinated yaw in Loiter (%.1f deg)" % hdg_delta)
+
+        # Loiter must still hold position with sticks centred
+        self.wait_groundspeed(0, 1.5, timeout=30)
+
+        # RC failsafe must behave as usual with the assist enabled
+        self.progress("Checking RC failsafe with assist enabled")
+        self.set_parameter("SIM_RC_FAIL", 1)
+        self.wait_mode('RTL', timeout=30)
+        self.set_parameter("SIM_RC_FAIL", 0)
+        self.delay_sim_time(2)
+        self.change_mode('LOITER')
+
+        self.land_and_disarm()
+
     def SplineWaypoint(self, timeout=600):
         """ensure basic spline functionality works"""
         self.load_mission("copter_spline_mission.txt", strict=False)
@@ -1111,6 +1226,8 @@ class AutoTestHelicopter(AutoTestCopter):
             self.RotorRunup,
             self.PosHoldTakeOff,
             self.StabilizeTakeOff,
+            self.BankSteerDisabled,
+            self.BankSteerAssist,
             self.SplineWaypoint,
             self.Autorotation,
             self.ManAutorotation,

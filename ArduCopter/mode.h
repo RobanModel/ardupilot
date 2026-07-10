@@ -200,6 +200,12 @@ public:
     virtual bool allows_weathervaning() const { return false; }
 #endif
 
+#if FRAME_CONFIG == HELI_FRAME
+    // true if this mode supports the optional coordinated turn assist
+    // (bank angle steering) for traditional helicopters
+    virtual bool allows_coordinated_turn_assist() const { return false; }
+#endif
+
 protected:
 
     // helper functions
@@ -485,6 +491,7 @@ public:
     bool allows_flip() const override { return true; }
 #if FRAME_CONFIG == HELI_FRAME
     bool allows_inverted() const override { return true; };
+    bool allows_coordinated_turn_assist() const override { return true; }
 #endif
 protected:
 
@@ -1291,6 +1298,7 @@ public:
 
 #if FRAME_CONFIG == HELI_FRAME
     bool allows_inverted() const override { return true; };
+    bool allows_coordinated_turn_assist() const override { return true; }
 #endif
 
 #if AC_PRECLAND_ENABLED
@@ -1649,6 +1657,7 @@ public:
     void run() override;
 
     bool allows_inverted() const override { return true; };
+    bool allows_coordinated_turn_assist() const override { return true; }
 
 protected:
 

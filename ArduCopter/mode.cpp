@@ -1032,7 +1032,31 @@ float Mode::get_pilot_desired_yaw_rate() const
     const float yaw_in = channel_yaw->norm_input_dz();
 
     // convert pilot input to the desired yaw rate
-    return g2.command_model_pilot.get_rate() * 100.0 * input_expo(yaw_in, g2.command_model_pilot.get_expo());
+    const float pilot_yaw_rate_cds = g2.command_model_pilot.get_rate() * 100.0 * input_expo(yaw_in, g2.command_model_pilot.get_expo());
+
+#if FRAME_CONFIG == HELI_FRAME
+    // optional coordinated turn assist (bank angle steering): derive an
+    // automatic yaw rate from the commanded bank angle in modes that
+    // support it.  The commanded bank comes from the attitude
+    // controller's target so this works whether the bank was commanded
+    // by the pilot (Stabilize, AltHold) or by the position controller
+    // (Loiter).
+    if (g2.heli_bank_steer.enabled() && allows_coordinated_turn_assist()) {
+        // only coordinate in established forward flight, never when
+        // landed or before the rotor has reached flight speed
+        const bool coordination_active = copter.heli_flags.dynamic_flight &&
+            !copter.ap.land_complete &&
+            motors->armed() &&
+            motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED;
+        // the helper works in SI units; convert at this boundary
+        const float yaw_rate_rads = g2.heli_bank_steer.update_rads(radians(pilot_yaw_rate_cds * 0.01f), yaw_in,
+                                                                   attitude_control->get_att_target_euler_rad().x,
+                                                                   coordination_active);
+        return degrees(yaw_rate_rads) * 100.0f;
+    }
+#endif
+
+    return pilot_yaw_rate_cds;
 }
 
 // pass-through functions to reduce code churn on conversion;

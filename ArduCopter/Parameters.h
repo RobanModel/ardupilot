@@ -12,6 +12,9 @@
 #if WEATHERVANE_ENABLED
  #include <AC_AttitudeControl/AC_WeatherVane.h>
 #endif
+#if FRAME_CONFIG == HELI_FRAME
+ #include "heli_bank_steer.h"
+#endif
 
 // Global parameter class.
 //
@@ -678,6 +681,11 @@ public:
 
 #if WEATHERVANE_ENABLED
     AC_WeatherVane weathervane;
+#endif
+
+#if FRAME_CONFIG == HELI_FRAME
+    // coordinated turn assist (bank angle steering) for traditional helicopters
+    HeliBankSteer heli_bank_steer;
 #endif
 
     // payload place parameters
