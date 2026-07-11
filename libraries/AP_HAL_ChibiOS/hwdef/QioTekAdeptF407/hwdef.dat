@@ -62,8 +62,9 @@ PC6 USART6_TX USART6 NODMA
 PC7 USART6_RX USART6 NODMA
 
 # CAN bus
-PD0 CAN1_RX CAN1
-PD1 CAN1_TX CAN1
+# CAN disabled for flash savings (boildown)
+#PD0 CAN1_RX CAN1
+#PD1 CAN1_TX CAN1
 
 # SPI1 for IMU Baro OSD
 PA5  SPI1_SCK SPI1
@@ -191,3 +192,35 @@ undef OSD_ENABLED
 define OSD_ENABLED 1
 define HAL_OSD_TYPE_DEFAULT 1
 ROMFS_WILDCARD libraries/AP_OSD/fonts/font1.bin
+
+# ----- CKS32F407-specific customizations (boildown overlay) -----
+# canonical copy: arducopter-tradheli-boildown/hwdef/QioTekAdeptF407/extra.dat
+define HAL_LOGGING_FILE_BUFSIZE 16
+define HAL_LOGGER_WRITE_CHUNK_SIZE 512
+define HAL_LOGGING_STACK_SIZE 2048
+define HAL_SDC_SLOWDOWN 6
+
+# Flash savings: OSD off (undo re-enable above)
+undef OSD_ENABLED
+define OSD_ENABLED 0
+undef ROMFS
+ROMFS_WILDCARD ""
+
+# CAN/DroneCAN software off
+define HAL_MAX_CAN_PROTOCOL_DRIVERS 0
+
+# SMBUS battery off
+undef AP_BATTERY_SMBUS_ENABLED
+define AP_BATTERY_SMBUS_ENABLED 0
+
+# Landing gear off
+undef AP_LANDINGGEAR_ENABLED
+define AP_LANDINGGEAR_ENABLED 0
+
+# GPS via MAVLink (RTK path)
+define AP_GPS_MAV_ENABLED 1
+
+# MANDATORY: CRSF/ELRS downlink telemetry (required by RAPI HUD)
+# minimize_features.inc disables it; re-enable
+undef HAL_CRSF_TELEM_ENABLED
+define HAL_CRSF_TELEM_ENABLED 1
