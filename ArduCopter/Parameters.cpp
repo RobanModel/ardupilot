@@ -1183,12 +1183,12 @@ const AP_Param::GroupInfo ParametersG2::var_info2[] = {
     // @User: Advanced
     // @RebootRequired: True
     AP_GROUPINFO("SURFTRAK_GLSAM", 22, ParametersG2, surf_dist_parameters.glitch_num_samples, AP_SURFACEDISTANCE_GLITCH_NUM_SAMPLES_DEFAULT),
+#endif
 
 #if FRAME_CONFIG == HELI_FRAME
     // @Group: HELI_BANK_
     // @Path: heli_bank_steer.cpp
     AP_SUBGROUPINFO(heli_bank_steer, "HELI_BANK_", 23, ParametersG2, HeliBankSteer),
-#endif
 #endif
 
     // ID 62 is reserved for the AP_SUBGROUPEXTENSION
