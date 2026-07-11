@@ -21,3 +21,6 @@ RELAY6_PIN 6
 
 # Disable the safety switch by default
 BRD_SAFETY_DEFLT 0
+
+# CKS32 SD card reliability
+BRD_SD_SLOWDOWN 6
