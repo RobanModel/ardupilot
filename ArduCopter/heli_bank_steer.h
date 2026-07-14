@@ -5,11 +5,15 @@
   for traditional helicopters.
 
   When enabled, an automatic yaw (tail rotor) rate command is derived
-  from the commanded bank angle so that turns are coordinated in forward
-  flight, similar to the simplified "bank steering" control style found
-  on some ready-to-fly scale helicopters.  This is an input assistance
-  layer only: it shapes the yaw rate command handed to the attitude
-  controller and does not modify attitude or rate control loops.
+  from the commanded bank angle so that banked turns are coordinated,
+  similar to the simplified "bank steering" control style found on some
+  ready-to-fly scale helicopters.  Since v2 the assist is purely speed
+  dependent (fade between HELI_BANK_SPD and HELI_BANK_SPDFUL, shaped by
+  HELI_BANK_SPDEXP) and symmetric for backward flight: flying tail-first
+  the yaw direction is reversed so backward turns coordinate correctly.
+  This is an input assistance layer only: it shapes the yaw rate command
+  handed to the attitude controller and does not modify attitude or rate
+  control loops.
 
   The assist is applied by Mode::get_pilot_desired_yaw_rate_rads() in
   modes that opt in via Mode::allows_coordinated_turn_assist()
@@ -47,6 +51,9 @@ private:
     AP_Float _yaw_max_degs;     // HELI_BANK_YAWMAX: maximum automatic yaw rate in deg/s
     AP_Float _blend_pct;        // HELI_BANK_BLEND: % of automatic yaw removed at full rudder deflection
     AP_Float _deadband_deg;     // HELI_BANK_DB: bank angle deadband in degrees
+    AP_Float _spd_min_ms;       // HELI_BANK_SPD: below this |longitudinal speed| the auto yaw is strictly zero
+    AP_Float _spd_full_ms;      // HELI_BANK_SPDFUL: |longitudinal speed| of full assist effect
+    AP_Float _spd_expo;         // HELI_BANK_SPDEXP: fade curve exponent (1 = linear)
 
     // state
     float _auto_yaw_rate_rads;  // low-pass filtered automatic yaw rate

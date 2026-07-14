@@ -1047,9 +1047,10 @@ float Mode::get_pilot_desired_yaw_rate() const
     // With HELI_BANK_STEER=0 the enabled() check short-circuits and the
     // stock pilot command is returned bit-identically.
     if (g2.heli_bank_steer.enabled() && allows_coordinated_turn_assist()) {
-        // only coordinate in established forward flight, never when
-        // landed or before the rotor has reached flight speed
-        const bool coordination_active = copter.heli_flags.dynamic_flight &&
+        // never coordinate when landed or before the rotor has reached
+        // flight speed.  Speed gating (v2) happens inside the helper via
+        // HELI_BANK_SPD/SPDFUL -- purely speed dependent, no time latch.
+        const bool coordination_active =
             !copter.ap.land_complete &&
             motors->armed() &&
             motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED;

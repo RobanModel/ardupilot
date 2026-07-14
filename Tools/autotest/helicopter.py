@@ -310,10 +310,10 @@ class AutoTestHelicopter(AutoTestCopter):
                 return total
 
     def bank_steer_forward_flight(self, min_groundspeed=6):
-        '''establish forward flight fast enough to set the dynamic-flight flag'''
+        '''establish forward flight well above HELI_BANK_SPDFUL'''
         self.set_rc(2, 1300)
         self.wait_groundspeed(min_groundspeed, 100, timeout=30)
-        self.delay_sim_time(3, reason="dynamic flight flag to set")
+        self.delay_sim_time(2, reason="speed to settle")
 
     def bank_steer_stop_and_land(self):
         '''come to a stationary hover in Loiter, descend, then land and
@@ -365,6 +365,25 @@ class AutoTestHelicopter(AutoTestCopter):
         self.progress("Hover: heading delta %.1f deg" % hdg_delta)
         if abs(hdg_delta) > 10:
             raise NotAchievedException("Automatic yaw in hover (%.1f deg)" % hdg_delta)
+
+        # backward flight: with the v2 signed-speed mixer, a right bank while
+        # flying tail-first must yaw the nose LEFT (coordinated backward turn)
+        self.progress("Checking coordinated turn in backward flight")
+        self.set_rc(2, 1700)
+        self.wait_groundspeed(4, 100, timeout=30)
+        self.delay_sim_time(2, reason="backward speed to settle")
+        self.set_rc(1, 1800)
+        hdg_delta = self.measure_heading_change(4)
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+        self.progress("Backward: heading delta %.1f deg" % hdg_delta)
+        if hdg_delta > -20:
+            raise NotAchievedException("Backward right bank did not yaw left (%.1f deg)" % hdg_delta)
+
+        # brake to a stop before the forward-flight section
+        self.change_mode('LOITER')
+        self.wait_groundspeed(0, 1.5, timeout=30)
+        self.change_mode('ALT_HOLD')
 
         # coordinated turn in AltHold forward flight
         self.progress("Checking coordinated turn in ALT_HOLD forward flight")
