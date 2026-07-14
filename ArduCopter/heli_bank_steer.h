@@ -9,8 +9,8 @@
   similar to the simplified "bank steering" control style found on some
   ready-to-fly scale helicopters.  Since v2 the assist is purely speed
   dependent (fade between HELI_BANK_SPD and HELI_BANK_SPDFUL, shaped by
-  HELI_BANK_SPDEXP) and symmetric for backward flight: flying tail-first
-  the yaw direction is reversed so backward turns coordinate correctly.
+  HELI_BANK_SPDEXP, no time latch).  Forward flight only: hover, sideways
+  and backward flight produce no automatic yaw (v2.1).
   This is an input assistance layer only: it shapes the yaw rate command
   handed to the attitude controller and does not modify attitude or rate
   control loops.
@@ -51,8 +51,8 @@ private:
     AP_Float _yaw_max_degs;     // HELI_BANK_YAWMAX: maximum automatic yaw rate in deg/s
     AP_Float _blend_pct;        // HELI_BANK_BLEND: % of automatic yaw removed at full rudder deflection
     AP_Float _deadband_deg;     // HELI_BANK_DB: bank angle deadband in degrees
-    AP_Float _spd_min_ms;       // HELI_BANK_SPD: below this |longitudinal speed| the auto yaw is strictly zero
-    AP_Float _spd_full_ms;      // HELI_BANK_SPDFUL: |longitudinal speed| of full assist effect
+    AP_Float _spd_min_ms;       // HELI_BANK_SPD: below this forward speed the auto yaw is strictly zero
+    AP_Float _spd_full_ms;      // HELI_BANK_SPDFUL: forward speed of full assist effect
     AP_Float _spd_expo;         // HELI_BANK_SPDEXP: fade curve exponent (1 = linear)
 
     // state

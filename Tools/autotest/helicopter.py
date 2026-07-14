@@ -366,9 +366,9 @@ class AutoTestHelicopter(AutoTestCopter):
         if abs(hdg_delta) > 10:
             raise NotAchievedException("Automatic yaw in hover (%.1f deg)" % hdg_delta)
 
-        # backward flight: with the v2 signed-speed mixer, a right bank while
-        # flying tail-first must yaw the nose LEFT (coordinated backward turn)
-        self.progress("Checking coordinated turn in backward flight")
+        # backward flight: the assist is forward-only (v2.1) -- banking
+        # while flying tail-first must produce no automatic yaw
+        self.progress("Checking no automatic yaw in backward flight")
         self.set_rc(2, 1700)
         self.wait_groundspeed(4, 100, timeout=30)
         self.delay_sim_time(2, reason="backward speed to settle")
@@ -377,8 +377,8 @@ class AutoTestHelicopter(AutoTestCopter):
         self.set_rc(1, 1500)
         self.set_rc(2, 1500)
         self.progress("Backward: heading delta %.1f deg" % hdg_delta)
-        if hdg_delta > -20:
-            raise NotAchievedException("Backward right bank did not yaw left (%.1f deg)" % hdg_delta)
+        if abs(hdg_delta) > 15:
+            raise NotAchievedException("Automatic yaw in backward flight (%.1f deg)" % hdg_delta)
 
         # brake to a stop before the forward-flight section
         self.change_mode('LOITER')

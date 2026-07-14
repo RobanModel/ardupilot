@@ -31,16 +31,18 @@
  *                             (armed && spooled && !landed);
  *                             plus |commanded bank| < 80 deg here
  *   4. bank deadband ramp  -> 0 inside HELI_BANK_DB deg, linear to 1 at 2xDB
- *   5. speed fade (v2)     -> uses the SIGNED body-axis longitudinal
- *                             groundspeed: strictly 0 below HELI_BANK_SPD,
+ *   5. speed fade (v2.1)   -> uses the body-axis FORWARD groundspeed
+ *                             component: strictly 0 below HELI_BANK_SPD,
  *                             full at HELI_BANK_SPDFUL, curve shaped by
  *                             HELI_BANK_SPDEXP (1 = linear).  Purely speed
- *                             dependent, no time latch.  Sideways flight
- *                             has ~zero longitudinal speed => no yaw.
- *   6. physics (v2)        -> ideal coordinated-turn rate g*tan(bank)/|v|,
- *                             bank clamped +-60 deg, |v| floored 0.5 m/s,
- *                             SIGN-FLIPPED when flying backwards so that
- *                             tail-first turns are coordinated too
+ *                             dependent, no time latch.  Hover, sideways
+ *                             and BACKWARD flight => no automatic yaw
+ *                             (a backward-symmetric variant was flight-
+ *                             tested and rolled back in v2.1).
+ *   6. physics             -> ideal coordinated-turn rate g*tan(bank)/V,
+ *                             V = airspeed estimate if available else
+ *                             groundspeed, floored 0.5 m/s; bank clamped
+ *                             +-60 deg
  *   7. scale + clamp       -> * HELI_BANK_GAIN, clamped +-HELI_BANK_YAWMAX
  *   8. smoothing           -> 1st-order low-pass, tau 0.5 s
  *   9. pilot blend         -> out = pilot + auto*(1 - BLEND% * |stick|);
@@ -48,8 +50,7 @@
  *                             authority, BLEND only attenuates the auto part
  *
  * SIGN CONVENTION: positive roll = right bank -> positive yaw rate = nose
- * right (clockwise from above), matching ArduPilot conventions.  Flying
- * backwards, a right bank commands a NEGATIVE (nose-left) yaw rate.
+ * right (clockwise from above), matching ArduPilot conventions.
  *
  * TESTS: Tools/autotest/helicopter.py BankSteerDisabled / BankSteerAssist.
  * DOCS:  arducopter-tradheli-boildown repo CLAUDE.md and the
@@ -57,10 +58,9 @@
  * ==========================================================================
  */
 
-// minimum speed used in the coordination calculation to avoid large yaw
-// rate commands at low speed
-// keeps g*tan(bank)/speed finite near the HELI_BANK_SPD threshold; the
-// YAWMAX clamp bounds the result anyway, this only avoids float extremes
+// minimum speed used in the coordination formula: keeps g*tan(bank)/speed
+// finite near the HELI_BANK_SPD threshold; the YAWMAX clamp bounds the
+// result anyway, this only avoids float extremes
 #define HELI_BANK_STEER_SPEED_FLOOR_MS  0.5f
 
 // bank angle used in the coordination formula is limited to this value
@@ -76,7 +76,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: STEER
     // @DisplayName: Helicopter coordinated turn assist enable
-    // @Description: Enables bank angle steering (coordinated turn assist) for traditional helicopters. When enabled, an automatic yaw rate command is derived from the commanded bank angle in Stabilize, AltHold and Loiter so that banked turns are coordinated without pilot rudder input, in forward and backward flight. This is a pilot input assistance layer only, it is not a navigation system. It has no effect below HELI_BANK_SPD, when landed, or in any other flight mode. Pilot rudder input always retains full authority.
+    // @Description: Enables bank angle steering (coordinated turn assist) for traditional helicopters. When enabled, an automatic yaw rate command is derived from the commanded bank angle in Stabilize, AltHold and Loiter so that turns in forward flight are coordinated without pilot rudder input. This is a pilot input assistance layer only, it is not a navigation system. It has no effect below HELI_BANK_SPD forward speed (hover, sideways and backward flight get no automatic yaw), when landed, or in any other flight mode. Pilot rudder input always retains full authority.
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
     AP_GROUPINFO_FLAGS("STEER", 1, HeliBankSteer, _enable, 0, AP_PARAM_FLAG_ENABLE),
@@ -118,7 +118,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: SPD
     // @DisplayName: Coordinated turn assist zero-yaw speed
-    // @Description: Below this body-axis speed (forward or backward) the assist commands strictly zero automatic yaw. The assist fades in between this speed and HELI_BANK_SPDFUL. Raise this if hover velocity noise causes unwanted yaw.
+    // @Description: Below this body-axis forward speed the assist commands strictly zero automatic yaw. The assist fades in between this speed and HELI_BANK_SPDFUL. Raise this if hover velocity noise causes unwanted yaw.
     // @Units: m/s
     // @Range: 0 10
     // @Increment: 0.1
@@ -127,7 +127,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: SPDFUL
     // @DisplayName: Coordinated turn assist full-effect speed
-    // @Description: Body-axis speed (forward or backward) at which the assist reaches full effect. Must be above HELI_BANK_SPD; values at or below it are treated as HELI_BANK_SPD + 0.1.
+    // @Description: Body-axis forward speed at which the assist reaches full effect. Must be above HELI_BANK_SPD; values at or below it are treated as HELI_BANK_SPD + 0.1.
     // @Units: m/s
     // @Range: 0.1 15
     // @Increment: 0.1
@@ -186,37 +186,37 @@ float HeliBankSteer::update_rads(float pilot_yaw_rate_rads, float pilot_yaw_inpu
         if (is_positive(bank_ramp)) {
             const AP_AHRS &ahrs = AP::ahrs();
 
-            // SIGNED body-axis longitudinal groundspeed: positive flying
-            // nose-first, negative flying tail-first.  Used for the fade
-            // ramp (magnitude), the coordination formula (magnitude) and
-            // the yaw direction (sign).  A tail-first coordinated turn
-            // needs the OPPOSITE yaw for the same bank: the flight path
-            // still curves toward the bank side, but the nose must rotate
-            // the other way to stay aligned with the path.
+            // body-axis FORWARD groundspeed component.  The assist works
+            // in forward flight only: flying backward or sideways gives a
+            // non-positive forward component and therefore zero assist.
+            // (v2.1: a backward-symmetric variant was flight-tested and
+            // rolled back -- do not reintroduce without new flight tests.)
             const Vector2f gs_vec = ahrs.groundspeed_vector();
             const float yaw_rad = ahrs.get_yaw();
-            const float lon_speed_ms = gs_vec * Vector2f(cosf(yaw_rad), sinf(yaw_rad));
-            const float lon_speed_abs = fabsf(lon_speed_ms);
+            const float fwd_speed_ms = gs_vec * Vector2f(cosf(yaw_rad), sinf(yaw_rad));
 
             // speed fade: strictly zero below HELI_BANK_SPD, full effect
             // at HELI_BANK_SPDFUL, curve shaped by HELI_BANK_SPDEXP
             // (1 = linear).  Purely speed dependent -- no time latch.
             const float spd_min = MAX(_spd_min_ms.get(), 0.0f);
             const float spd_full = MAX(_spd_full_ms.get(), spd_min + 0.1f);
-            float spd_ramp = constrain_float((lon_speed_abs - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
+            float spd_ramp = constrain_float((fwd_speed_ms - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
             const float spd_expo = constrain_float(_spd_expo.get(), 0.2f, 5.0f);
             if (spd_ramp > 0.0f && !is_equal(spd_expo, 1.0f)) {
                 spd_ramp = powf(spd_ramp, spd_expo);
             }
 
-            // physically ideal coordinated turn yaw rate: g * tan(bank) / speed,
-            // sign-flipped when flying backwards
-            const float bank_lim_rad = constrain_float(bank_target_rad, -HELI_BANK_STEER_BANK_LIMIT_RAD, HELI_BANK_STEER_BANK_LIMIT_RAD);
-            const float speed_ms = MAX(lon_speed_abs, HELI_BANK_STEER_SPEED_FLOOR_MS);
-            target_rads = _gain * bank_ramp * spd_ramp * GRAVITY_MSS * tanf(bank_lim_rad) / speed_ms;
-            if (is_negative(lon_speed_ms)) {
-                target_rads = -target_rads;
+            // speed for the coordination formula: true airspeed estimate
+            // if available, otherwise ground speed (as in v1)
+            float speed_ms;
+            if (!ahrs.airspeed_estimate_true(speed_ms)) {
+                speed_ms = ahrs.groundspeed();
             }
+            speed_ms = MAX(speed_ms, HELI_BANK_STEER_SPEED_FLOOR_MS);
+
+            // physically ideal coordinated turn yaw rate: g * tan(bank) / speed
+            const float bank_lim_rad = constrain_float(bank_target_rad, -HELI_BANK_STEER_BANK_LIMIT_RAD, HELI_BANK_STEER_BANK_LIMIT_RAD);
+            target_rads = _gain * bank_ramp * spd_ramp * GRAVITY_MSS * tanf(bank_lim_rad) / speed_ms;
 
             const float yaw_max_rads = radians(constrain_float(_yaw_max_degs.get(), 0.0f, 120.0f));
             target_rads = constrain_float(target_rads, -yaw_max_rads, yaw_max_rads);
