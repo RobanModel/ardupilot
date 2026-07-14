@@ -5,6 +5,49 @@
 /*
  * Coordinated turn assist ("bank angle steering") for traditional helicopters.
  * See heli_bank_steer.h for an overview.
+ *
+ * ============================ MAINTAINER NOTES ============================
+ * (for humans and future AI sessions -- read before changing anything)
+ *
+ * WHAT THIS IS: an optional pilot-input shaping layer.  It adds an automatic
+ * yaw-rate component to the pilot's rudder command so that banked forward
+ * flight is coordinated (nose follows the turn) without pilot rudder input.
+ * It does NOT touch attitude/rate PID loops, navigation, or servo mixing.
+ *
+ * WHERE IT RUNS: called every main loop iteration from
+ * Mode::get_pilot_desired_yaw_rate() in mode.cpp, but ONLY when
+ * HELI_BANK_STEER=1 and the active mode opted in via
+ * Mode::allows_coordinated_turn_assist() (Stabilize, AltHold, Loiter).
+ * With HELI_BANK_STEER=0 this file is dead code.
+ *
+ * UNITS: everything in this file is SI (radians, rad/s, m/s).  The caller in
+ * mode.cpp converts to/from the vehicle-side units (centidegrees/s on 4.6.x).
+ *
+ * PIPELINE (update_rads):
+ *   1. disabled?           -> pass pilot command through, reset state
+ *   2. update-gap detect   -> restart filter from zero after >0.2 s without
+ *                             calls (mode switch / just enabled), no steps
+ *   3. gates               -> caller passes coordination_active
+ *                             (armed && spooled && !landed && dynamic_flight);
+ *                             plus |commanded bank| < 80 deg here
+ *   4. bank deadband ramp  -> 0 inside HELI_BANK_DB deg, linear to 1 at 2xDB
+ *   5. speed fade          -> 0 below 2 m/s BODY-FORWARD groundspeed,
+ *                             linear to 1 at 4 m/s (hover/sideways => no yaw)
+ *   6. physics             -> ideal coordinated-turn rate g*tan(bank)/speed,
+ *                             bank clamped +-60 deg, speed floored 3 m/s
+ *   7. scale + clamp       -> * HELI_BANK_GAIN, clamped +-HELI_BANK_YAWMAX
+ *   8. smoothing           -> 1st-order low-pass, tau 0.5 s
+ *   9. pilot blend         -> out = pilot + auto*(1 - BLEND% * |stick|);
+ *                             the pilot term is ALWAYS applied at full
+ *                             authority, BLEND only attenuates the auto part
+ *
+ * SIGN CONVENTION: positive roll = right bank -> positive yaw rate = nose
+ * right (clockwise from above), matching ArduPilot conventions.
+ *
+ * TESTS: Tools/autotest/helicopter.py BankSteerDisabled / BankSteerAssist.
+ * DOCS:  arducopter-tradheli-boildown repo CLAUDE.md and the
+ *        claude-session-memory/ directory in the dev workspace.
+ * ==========================================================================
  */
 
 // minimum speed used in the coordination calculation to avoid large yaw

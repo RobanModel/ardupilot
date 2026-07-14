@@ -1037,10 +1037,15 @@ float Mode::get_pilot_desired_yaw_rate() const
 #if FRAME_CONFIG == HELI_FRAME
     // optional coordinated turn assist (bank angle steering): derive an
     // automatic yaw rate from the commanded bank angle in modes that
-    // support it.  The commanded bank comes from the attitude
-    // controller's target so this works whether the bank was commanded
-    // by the pilot (Stabilize, AltHold) or by the position controller
-    // (Loiter).
+    // support it (Stabilize/AltHold/Loiter, opted in via
+    // allows_coordinated_turn_assist()).  The commanded bank comes from
+    // the attitude controller's target so this works whether the bank was
+    // commanded by the pilot (Stabilize, AltHold) or by the position
+    // controller (Loiter).  The helper (heli_bank_steer.cpp, see its
+    // maintainer notes) works entirely in SI units; this hook converts
+    // from/to the centidegrees/s used by the 4.6.x pilot input path.
+    // With HELI_BANK_STEER=0 the enabled() check short-circuits and the
+    // stock pilot command is returned bit-identically.
     if (g2.heli_bank_steer.enabled() && allows_coordinated_turn_assist()) {
         // only coordinate in established forward flight, never when
         // landed or before the rotor has reached flight speed
