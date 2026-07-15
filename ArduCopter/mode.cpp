@@ -1054,9 +1054,15 @@ float Mode::get_pilot_desired_yaw_rate() const
             !copter.ap.land_complete &&
             motors->armed() &&
             motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED;
-        // the helper works in SI units; convert at this boundary
+        // the helper works in SI units; convert at this boundary.
+        // Subtract the heli hover-roll trim (ATC_HOVR_ROL_TRM) from the
+        // attitude target: the trim counters tail-rotor thrust and is
+        // added into the euler roll target by the attitude controller,
+        // which would otherwise bias the assist right (steeper right
+        // banks, shallower left banks -> asymmetric turns).
+        const float bank_rad = attitude_control->get_att_target_euler_rad().x - radians(attitude_control->get_roll_trim_cd() * 0.01f);
         const float yaw_rate_rads = g2.heli_bank_steer.update_rads(radians(pilot_yaw_rate_cds * 0.01f), yaw_in,
-                                                                   attitude_control->get_att_target_euler_rad().x,
+                                                                   bank_rad,
                                                                    coordination_active);
         return degrees(yaw_rate_rads) * 100.0f;
     }

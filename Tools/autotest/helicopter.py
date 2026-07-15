@@ -328,6 +328,58 @@ class AutoTestHelicopter(AutoTestCopter):
         self.set_rc(3, 1500)
         self.land_and_disarm()
 
+    def bank_steer_probe_segment(self, rc2, rc1, label, hold_s=8):
+        '''temporary diagnostic: stop, build speed with rc2, apply roll rc1,
+        record yaw rate / roll / speed statistics for hold_s seconds'''
+        import math
+        self.change_mode('LOITER')
+        self.wait_groundspeed(0, 1.5, timeout=60)
+        self.change_mode('ALT_HOLD')
+        self.set_rc(2, rc2)
+        self.delay_sim_time(5, reason="build speed")
+        m = self.assert_receive_message('VFR_HUD')
+        gs_entry = m.groundspeed
+        self.set_rc(1, rc1)
+        yawspeeds = []
+        rolls = []
+        speeds = []
+        hdg_total = 0.0
+        last_hdg = self.get_heading()
+        tstart = self.get_sim_time()
+        while self.get_sim_time() - tstart < hold_s:
+            att = self.assert_receive_message('ATTITUDE', timeout=10)
+            yawspeeds.append(math.degrees(att.yawspeed))
+            rolls.append(math.degrees(att.roll))
+            hud = self.assert_receive_message('VFR_HUD', timeout=10)
+            speeds.append(hud.groundspeed)
+            hdg_total += self.signed_heading_delta(last_hdg, hud.heading)
+            last_hdg = hud.heading
+        self.set_rc(1, 1500)
+        self.set_rc(2, 1500)
+        if not yawspeeds:
+            yawspeeds = [0.0]
+        if not rolls:
+            rolls = [0.0]
+        if not speeds:
+            speeds = [0.0]
+        self.progress("PROBE %s: entry_gs=%.1f m/s | yawrate mean=%.1f min=%.1f max=%.1f deg/s | "
+                      "roll mean=%.1f deg | gs %.1f..%.1f m/s | hdg_total=%+.0f deg" %
+                      (label, gs_entry,
+                       sum(yawspeeds)/len(yawspeeds), min(yawspeeds), max(yawspeeds),
+                       sum(rolls)/len(rolls),
+                       min(speeds), max(speeds),
+                       hdg_total))
+
+    def BankSteerProbe(self):
+        '''diagnostic probe: full right / full left roll at two forward speeds'''
+        self.set_parameter("HELI_BANK_STEER", 1)
+        self.takeoff(10, mode="ALT_HOLD")
+        self.bank_steer_probe_segment(1440, 2000, "slow FULL-RIGHT")
+        self.bank_steer_probe_segment(1440, 1000, "slow FULL-LEFT")
+        self.bank_steer_probe_segment(1300, 2000, "fast FULL-RIGHT")
+        self.bank_steer_probe_segment(1300, 1000, "fast FULL-LEFT")
+        self.bank_steer_stop_and_land()
+
     def BankSteerDisabled(self):
         '''HELI_BANK_STEER disabled: banked forward flight must not create yaw'''
         # HELI_BANK_STEER defaults to 0; make sure of it anyway
@@ -365,6 +417,26 @@ class AutoTestHelicopter(AutoTestCopter):
         self.progress("Hover: heading delta %.1f deg" % hdg_delta)
         if abs(hdg_delta) > 10:
             raise NotAchievedException("Automatic yaw in hover (%.1f deg)" % hdg_delta)
+
+        # straight forward flight must stay straight: the hover-roll trim
+        # (ATC_HOVR_ROL_TRM) is added into the attitude target by the
+        # attitude controller and must NOT bleed into the assist as a
+        # phantom bank.  A small bank deadband would expose the bleed as
+        # a constant gentle turn.
+        self.progress("Checking straight forward flight stays straight")
+        self.set_parameter("HELI_BANK_DB", 1)
+        self.bank_steer_forward_flight()
+        hdg_delta = self.measure_heading_change(6)
+        self.set_rc(2, 1500)
+        self.set_parameter("HELI_BANK_DB", 5)
+        self.progress("Straight: heading delta %.1f deg" % hdg_delta)
+        if abs(hdg_delta) > 10:
+            raise NotAchievedException("Hover roll trim bleeds into assist (%.1f deg)" % hdg_delta)
+
+        # brake to a stop before the backward section
+        self.change_mode('LOITER')
+        self.wait_groundspeed(0, 1.5, timeout=30)
+        self.change_mode('ALT_HOLD')
 
         # backward flight: the assist is forward-only (v2.1) -- banking
         # while flying tail-first must produce no automatic yaw
@@ -1265,6 +1337,7 @@ class AutoTestHelicopter(AutoTestCopter):
             self.RotorRunup,
             self.PosHoldTakeOff,
             self.StabilizeTakeOff,
+            self.BankSteerProbe,
             self.BankSteerDisabled,
             self.BankSteerAssist,
             self.SplineWaypoint,
