@@ -31,18 +31,22 @@
  *                             (armed && spooled && !landed);
  *                             plus |commanded bank| < 80 deg here
  *   4. bank deadband ramp  -> 0 inside HELI_BANK_DB deg, linear to 1 at 2xDB
- *   5. speed fade (v2.1)   -> uses the body-axis FORWARD groundspeed
- *                             component: strictly 0 below HELI_BANK_SPD,
- *                             full at HELI_BANK_SPDFUL, curve shaped by
+ *   5. speed fade (v2.3)   -> uses |body-axis longitudinal groundspeed|:
+ *                             strictly 0 below HELI_BANK_SPD, full at
+ *                             HELI_BANK_SPDFUL, curve shaped by
  *                             HELI_BANK_SPDEXP (1 = linear).  Purely speed
- *                             dependent, no time latch.  Hover, sideways
- *                             and BACKWARD flight => no automatic yaw
- *                             (a backward-symmetric variant was flight-
- *                             tested and rolled back in v2.1).
+ *                             dependent, no time latch.  Hover and
+ *                             sideways flight => no automatic yaw.
  *   6. physics             -> ideal coordinated-turn rate g*tan(bank)/V,
  *                             V = airspeed estimate if available else
  *                             groundspeed, floored 0.5 m/s; bank clamped
- *                             +-60 deg
+ *                             +-60 deg.  Flying TAIL-FIRST the yaw is
+ *                             INVERTED (v2.3, velocity-sign triggered) so
+ *                             backward circles stay banked toward the
+ *                             centre.  (v2 tried this with a different
+ *                             speed source + the trim-bleed bug present
+ *                             and was rolled back; v2.3 is the clean
+ *                             retry approved after the v2.2 fix.)
  *   7. scale + clamp       -> * HELI_BANK_GAIN, clamped +-HELI_BANK_YAWMAX
  *   8. smoothing           -> 1st-order low-pass, tau 0.5 s
  *   9. pilot blend         -> out = pilot + auto*(1 - BLEND% * |stick|);
@@ -76,7 +80,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: STEER
     // @DisplayName: Helicopter coordinated turn assist enable
-    // @Description: Enables bank angle steering (coordinated turn assist) for traditional helicopters. When enabled, an automatic yaw rate command is derived from the commanded bank angle in Stabilize, AltHold and Loiter so that turns in forward flight are coordinated without pilot rudder input. This is a pilot input assistance layer only, it is not a navigation system. It has no effect below HELI_BANK_SPD forward speed (hover, sideways and backward flight get no automatic yaw), when landed, or in any other flight mode. Pilot rudder input always retains full authority.
+    // @Description: Enables bank angle steering (coordinated turn assist) for traditional helicopters. When enabled, an automatic yaw rate command is derived from the commanded bank angle in Stabilize, AltHold and Loiter so that banked turns are coordinated without pilot rudder input, in forward and backward flight (flying tail-first the automatic yaw direction is inverted so the circle stays banked toward its centre). This is a pilot input assistance layer only, it is not a navigation system. It has no effect below HELI_BANK_SPD longitudinal speed (hover and sideways flight get no automatic yaw), when landed, or in any other flight mode. Pilot rudder input always retains full authority.
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
     AP_GROUPINFO_FLAGS("STEER", 1, HeliBankSteer, _enable, 0, AP_PARAM_FLAG_ENABLE),
@@ -118,7 +122,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: SPD
     // @DisplayName: Coordinated turn assist zero-yaw speed
-    // @Description: Below this body-axis forward speed the assist commands strictly zero automatic yaw. The assist fades in between this speed and HELI_BANK_SPDFUL. Raise this if hover velocity noise causes unwanted yaw.
+    // @Description: Below this body-axis longitudinal speed (forward or backward) the assist commands strictly zero automatic yaw. The assist fades in between this speed and HELI_BANK_SPDFUL. Raise this if hover velocity noise causes unwanted yaw.
     // @Units: m/s
     // @Range: 0 10
     // @Increment: 0.1
@@ -127,7 +131,7 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
 
     // @Param: SPDFUL
     // @DisplayName: Coordinated turn assist full-effect speed
-    // @Description: Body-axis forward speed at which the assist reaches full effect. Must be above HELI_BANK_SPD; values at or below it are treated as HELI_BANK_SPD + 0.1.
+    // @Description: Body-axis longitudinal speed (forward or backward) at which the assist reaches full effect. Must be above HELI_BANK_SPD; values at or below it are treated as HELI_BANK_SPD + 0.1.
     // @Units: m/s
     // @Range: 0.1 15
     // @Increment: 0.1
@@ -186,21 +190,22 @@ float HeliBankSteer::update_rads(float pilot_yaw_rate_rads, float pilot_yaw_inpu
         if (is_positive(bank_ramp)) {
             const AP_AHRS &ahrs = AP::ahrs();
 
-            // body-axis FORWARD groundspeed component.  The assist works
-            // in forward flight only: flying backward or sideways gives a
-            // non-positive forward component and therefore zero assist.
-            // (v2.1: a backward-symmetric variant was flight-tested and
-            // rolled back -- do not reintroduce without new flight tests.)
+            // SIGNED body-axis longitudinal groundspeed component:
+            // positive nose-first, negative tail-first.  v2.3: the assist
+            // works in forward AND backward flight; sideways flight has
+            // ~zero longitudinal speed and therefore zero assist.
             const Vector2f gs_vec = ahrs.groundspeed_vector();
             const float yaw_rad = ahrs.get_yaw();
-            const float fwd_speed_ms = gs_vec * Vector2f(cosf(yaw_rad), sinf(yaw_rad));
+            const float lon_speed_ms = gs_vec * Vector2f(cosf(yaw_rad), sinf(yaw_rad));
 
             // speed fade: strictly zero below HELI_BANK_SPD, full effect
             // at HELI_BANK_SPDFUL, curve shaped by HELI_BANK_SPDEXP
-            // (1 = linear).  Purely speed dependent -- no time latch.
+            // (1 = linear).  Applies symmetrically to forward and backward
+            // flight; the below-SPD region doubles as a dead zone around
+            // zero speed so the direction inversion cannot chatter.
             const float spd_min = MAX(_spd_min_ms.get(), 0.0f);
             const float spd_full = MAX(_spd_full_ms.get(), spd_min + 0.1f);
-            float spd_ramp = constrain_float((fwd_speed_ms - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
+            float spd_ramp = constrain_float((fabsf(lon_speed_ms) - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
             const float spd_expo = constrain_float(_spd_expo.get(), 0.2f, 5.0f);
             if (spd_ramp > 0.0f && !is_equal(spd_expo, 1.0f)) {
                 spd_ramp = powf(spd_ramp, spd_expo);
@@ -217,6 +222,15 @@ float HeliBankSteer::update_rads(float pilot_yaw_rate_rads, float pilot_yaw_inpu
             // physically ideal coordinated turn yaw rate: g * tan(bank) / speed
             const float bank_lim_rad = constrain_float(bank_target_rad, -HELI_BANK_STEER_BANK_LIMIT_RAD, HELI_BANK_STEER_BANK_LIMIT_RAD);
             target_rads = _gain * bank_ramp * spd_ramp * GRAVITY_MSS * tanf(bank_lim_rad) / speed_ms;
+
+            // tail-first flight (v2.3): invert the automatic yaw so a
+            // banked backward circle stays banked toward its centre.
+            // Triggered by the measured velocity sign, NOT the pitch
+            // stick: while decelerating from forward flight the machine
+            // still moves forward and must keep forward-sense steering.
+            if (is_negative(lon_speed_ms)) {
+                target_rads = -target_rads;
+            }
 
             const float yaw_max_rads = radians(constrain_float(_yaw_max_degs.get(), 0.0f, 120.0f));
             target_rads = constrain_float(target_rads, -yaw_max_rads, yaw_max_rads);

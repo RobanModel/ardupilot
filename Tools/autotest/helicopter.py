@@ -438,9 +438,10 @@ class AutoTestHelicopter(AutoTestCopter):
         self.wait_groundspeed(0, 1.5, timeout=30)
         self.change_mode('ALT_HOLD')
 
-        # backward flight: the assist is forward-only (v2.1) -- banking
-        # while flying tail-first must produce no automatic yaw
-        self.progress("Checking no automatic yaw in backward flight")
+        # backward flight (v2.3): banking while flying tail-first must yaw
+        # the nose OPPOSITE to the bank so the circle stays banked toward
+        # its centre -- right bank => nose left
+        self.progress("Checking coordinated backward turn")
         self.set_rc(2, 1700)
         self.wait_groundspeed(4, 100, timeout=30)
         self.delay_sim_time(2, reason="backward speed to settle")
@@ -449,8 +450,8 @@ class AutoTestHelicopter(AutoTestCopter):
         self.set_rc(1, 1500)
         self.set_rc(2, 1500)
         self.progress("Backward: heading delta %.1f deg" % hdg_delta)
-        if abs(hdg_delta) > 15:
-            raise NotAchievedException("Automatic yaw in backward flight (%.1f deg)" % hdg_delta)
+        if hdg_delta > -20:
+            raise NotAchievedException("Backward right bank did not yaw left (%.1f deg)" % hdg_delta)
 
         # brake to a stop before the forward-flight section
         self.change_mode('LOITER')
