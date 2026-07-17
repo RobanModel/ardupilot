@@ -97,9 +97,8 @@ SPIDEV ramtron        SPI2 DEVID7  FRAM_CS      MODE0   8*MHZ    8*MHZ
 
 # four IMUs
 IMU Invensensev3  SPI:imu1      ROTATION_NONE
-# TODO: QMI8658A has no ArduPilot driver (checked 4.6.3 and
-# master, 2026-07) -- imu2 disabled until a driver is written.
-# IMU QMI8658A      SPI:imu2      ROTATION_NONE
+# QMI8658A driver ported from the Roban vendor tree (4.5.6 base)
+IMU QMI8658A      SPI:imu2      ROTATION_NONE
 
 # two Baro sensors
 BARO DPS280 SPI:baro1
