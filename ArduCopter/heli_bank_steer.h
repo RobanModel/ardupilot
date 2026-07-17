@@ -55,9 +55,25 @@ private:
     AP_Float _deadband_deg;     // HELI_BANK_DB: bank angle deadband in degrees
     AP_Float _spd_min_ms;       // HELI_BANK_SPD: below this |longitudinal speed| the auto yaw is strictly zero
     AP_Float _spd_full_ms;      // HELI_BANK_SPDFUL: |longitudinal speed| of full assist effect
-    AP_Float _spd_expo;         // HELI_BANK_SPDEXP: fade curve exponent (1 = linear)
+    AP_Float _crv_ofs_25;       // HELI_BANK_SPD_25: fade curve offset from linear at 25% of the band, in %
+    AP_Float _crv_ofs_50;       // HELI_BANK_SPD_50: fade curve offset from linear at 50% of the band, in %
+    AP_Float _crv_ofs_75;       // HELI_BANK_SPD_75: fade curve offset from linear at 75% of the band, in %
+
+    // recompute the cached fade-curve interpolant if the offset
+    // parameters changed
+    void update_speed_curve();
+
+    // evaluate the fade curve at normalized band position u (0..1),
+    // returns the assist ratio 0..1
+    float apply_speed_curve(float u) const;
 
     // state
     float _auto_yaw_rate_rads;  // low-pass filtered automatic yaw rate
     uint32_t _last_update_ms;   // time of last update, used to detect activation gaps
+
+    // cached monotone-cubic (PCHIP) fade curve through five control
+    // points at u = 0, 0.25, 0.5, 0.75, 1
+    float _crv_y[5];            // control point values (clamped 0..1)
+    float _crv_m[5];            // limited Hermite tangents
+    float _crv_last[3] = {-1e9f, -1e9f, -1e9f};  // offsets the cache was built for
 };

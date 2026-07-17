@@ -31,12 +31,15 @@
  *                             (armed && spooled && !landed);
  *                             plus |commanded bank| < 80 deg here
  *   4. bank deadband ramp  -> 0 inside HELI_BANK_DB deg, linear to 1 at 2xDB
- *   5. speed fade (v2.3)   -> uses |body-axis longitudinal groundspeed|:
+ *   5. speed fade (v2.4)   -> uses |body-axis longitudinal groundspeed|:
  *                             strictly 0 below HELI_BANK_SPD, full at
- *                             HELI_BANK_SPDFUL, curve shaped by
- *                             HELI_BANK_SPDEXP (1 = linear).  Purely speed
- *                             dependent, no time latch.  Hover and
- *                             sideways flight => no automatic yaw.
+ *                             HELI_BANK_SPDFUL.  The shape between them is
+ *                             a monotone-limited cubic (PCHIP) through
+ *                             (0,0),(1,1) and three offset-from-linear
+ *                             points set by HELI_BANK_SPD_25/50/75 (in %;
+ *                             0/0/0 = linear).  Purely speed dependent,
+ *                             no time latch.  Hover and sideways flight
+ *                             => no automatic yaw.
  *   6. physics             -> ideal coordinated-turn rate g*tan(bank)/V,
  *                             V = airspeed estimate if available else
  *                             groundspeed, floored 0.5 m/s; bank clamped
@@ -138,20 +141,107 @@ const AP_Param::GroupInfo HeliBankSteer::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("SPDFUL", 7, HeliBankSteer, _spd_full_ms, 4.0f),
 
-    // @Param: SPDEXP
-    // @DisplayName: Coordinated turn assist speed fade exponent
-    // @Description: Shapes the fade-in curve between HELI_BANK_SPD and HELI_BANK_SPDFUL. 1.0 is linear. Below 1.0 the assist comes in faster just above HELI_BANK_SPD; above 1.0 it comes in softer at low speed and firmer near HELI_BANK_SPDFUL.
-    // @Range: 0.2 5
-    // @Increment: 0.1
+    // index 8 was SPDEXP (single-exponent fade shaping), replaced by the
+    // three-point offset curve below in v2.4 -- do not reuse index 8
+
+    // @Param: SPD_25
+    // @DisplayName: Coordinated turn assist fade curve offset at 25%
+    // @Description: Offset of the assist ratio from linear at 25% of the speed band between HELI_BANK_SPD and HELI_BANK_SPDFUL, in percent. Positive values make the assist come in earlier/stronger at low speed. 0,0,0 in all three offsets gives a linear fade. The curve always starts at 0 and ends at full effect; a shape-preserving spline through the three offset points avoids overshoot.
+    // @Units: %
+    // @Range: -75 75
+    // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("SPDEXP", 8, HeliBankSteer, _spd_expo, 1.0f),
+    AP_GROUPINFO("SPD_25", 9, HeliBankSteer, _crv_ofs_25, 0),
+
+    // @Param: SPD_50
+    // @DisplayName: Coordinated turn assist fade curve offset at 50%
+    // @Description: Offset of the assist ratio from linear at 50% of the speed band between HELI_BANK_SPD and HELI_BANK_SPDFUL, in percent.
+    // @Units: %
+    // @Range: -75 75
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("SPD_50", 10, HeliBankSteer, _crv_ofs_50, 0),
+
+    // @Param: SPD_75
+    // @DisplayName: Coordinated turn assist fade curve offset at 75%
+    // @Description: Offset of the assist ratio from linear at 75% of the speed band between HELI_BANK_SPD and HELI_BANK_SPDFUL, in percent.
+    // @Units: %
+    // @Range: -75 75
+    // @Increment: 1
+    // @User: Advanced
+    AP_GROUPINFO("SPD_75", 11, HeliBankSteer, _crv_ofs_75, 0),
 
     AP_GROUPEND
 };
 
+// rebuild the cached fade-curve interpolant when the offset parameters
+// change.  Five control points at u = 0, 0.25, 0.5, 0.75, 1 with fixed
+// endpoints (0,0) and (1,1); the three interior points are offset from
+// the linear response by the SPD_25/50/75 parameters.  Tangents use the
+// Fritsch-Carlson (PCHIP) limiter: shape preserving, no overshoot
+// between points, flat neighbouring points give a flat section.
+void HeliBankSteer::update_speed_curve()
+{
+    const float ofs[3] = { _crv_ofs_25.get(), _crv_ofs_50.get(), _crv_ofs_75.get() };
+    if (is_equal(ofs[0], _crv_last[0]) && is_equal(ofs[1], _crv_last[1]) && is_equal(ofs[2], _crv_last[2])) {
+        return;
+    }
+    _crv_last[0] = ofs[0];
+    _crv_last[1] = ofs[1];
+    _crv_last[2] = ofs[2];
+
+    _crv_y[0] = 0.0f;
+    _crv_y[4] = 1.0f;
+    for (uint8_t i = 0; i < 3; i++) {
+        const float lin = 0.25f * (i + 1);
+        _crv_y[i + 1] = constrain_float(lin + ofs[i] * 0.01f, 0.0f, 1.0f);
+    }
+
+    // secant slopes of the four uniform intervals (h = 0.25)
+    float d[4];
+    for (uint8_t i = 0; i < 4; i++) {
+        d[i] = (_crv_y[i + 1] - _crv_y[i]) * 4.0f;
+    }
+
+    // endpoint tangents equal the adjacent secants (monotone safe);
+    // interior tangents use the harmonic mean, zeroed where the data
+    // turns or flattens
+    _crv_m[0] = d[0];
+    _crv_m[4] = d[3];
+    for (uint8_t i = 1; i < 4; i++) {
+        if (d[i - 1] * d[i] <= 0.0f) {
+            _crv_m[i] = 0.0f;
+        } else {
+            _crv_m[i] = 2.0f * d[i - 1] * d[i] / (d[i - 1] + d[i]);
+        }
+    }
+}
+
+// evaluate the cached fade curve with a cubic Hermite step in the
+// interval containing u
+float HeliBankSteer::apply_speed_curve(float u) const
+{
+    u = constrain_float(u, 0.0f, 1.0f);
+    uint8_t k = (uint8_t)(u * 4.0f);
+    if (k > 3) {
+        k = 3;
+    }
+    const float t = (u - 0.25f * k) * 4.0f;
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+    const float h10 = t3 - 2.0f * t2 + t;
+    const float h01 = -2.0f * t3 + 3.0f * t2;
+    const float h11 = t3 - t2;
+    const float y = h00 * _crv_y[k] + h10 * 0.25f * _crv_m[k] +
+                    h01 * _crv_y[k + 1] + h11 * 0.25f * _crv_m[k + 1];
+    return constrain_float(y, 0.0f, 1.0f);
+}
+
 HeliBankSteer::HeliBankSteer()
 {
     AP_Param::setup_object_defaults(this, var_info);
+    update_speed_curve();
 }
 
 float HeliBankSteer::update_rads(float pilot_yaw_rate_rads, float pilot_yaw_input_norm, float bank_target_rad, bool coordination_active)
@@ -205,11 +295,9 @@ float HeliBankSteer::update_rads(float pilot_yaw_rate_rads, float pilot_yaw_inpu
             // zero speed so the direction inversion cannot chatter.
             const float spd_min = MAX(_spd_min_ms.get(), 0.0f);
             const float spd_full = MAX(_spd_full_ms.get(), spd_min + 0.1f);
-            float spd_ramp = constrain_float((fabsf(lon_speed_ms) - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
-            const float spd_expo = constrain_float(_spd_expo.get(), 0.2f, 5.0f);
-            if (spd_ramp > 0.0f && !is_equal(spd_expo, 1.0f)) {
-                spd_ramp = powf(spd_ramp, spd_expo);
-            }
+            const float band_pos = constrain_float((fabsf(lon_speed_ms) - spd_min) / (spd_full - spd_min), 0.0f, 1.0f);
+            update_speed_curve();
+            const float spd_ramp = apply_speed_curve(band_pos);
 
             // speed for the coordination formula: true airspeed estimate
             // if available, otherwise ground speed (as in v1)

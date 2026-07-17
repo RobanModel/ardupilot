@@ -362,13 +362,15 @@ class AutoTestHelicopter(AutoTestCopter):
             rolls = [0.0]
         if not speeds:
             speeds = [0.0]
+        mean_yaw = sum(yawspeeds)/len(yawspeeds)
         self.progress("PROBE %s: entry_gs=%.1f m/s | yawrate mean=%.1f min=%.1f max=%.1f deg/s | "
                       "roll mean=%.1f deg | gs %.1f..%.1f m/s | hdg_total=%+.0f deg" %
                       (label, gs_entry,
-                       sum(yawspeeds)/len(yawspeeds), min(yawspeeds), max(yawspeeds),
+                       mean_yaw, min(yawspeeds), max(yawspeeds),
                        sum(rolls)/len(rolls),
                        min(speeds), max(speeds),
                        hdg_total))
+        return mean_yaw
 
     def BankSteerProbe(self):
         '''diagnostic probe: full right / full left roll at two forward speeds'''
@@ -378,6 +380,39 @@ class AutoTestHelicopter(AutoTestCopter):
         self.bank_steer_probe_segment(1440, 1000, "slow FULL-LEFT")
         self.bank_steer_probe_segment(1300, 2000, "fast FULL-RIGHT")
         self.bank_steer_probe_segment(1300, 1000, "fast FULL-LEFT")
+        self.bank_steer_stop_and_land()
+
+    def BankSteerCurveProbe(self):
+        '''v2.4 fade curve: early/linear/late offset sets must order the
+        assist strength at a mid-band speed'''
+        self.set_parameter("HELI_BANK_STEER", 1)
+        # widen the fade band so cruise speed sits mid-band where the
+        # curve shapes differ most
+        self.set_parameter("HELI_BANK_SPDFUL", 20)
+        self.takeoff(10, mode="ALT_HOLD")
+        results = {}
+        for label, o25, o50, o75 in (("linear", 0, 0, 0),
+                                     ("early", 25, 15, 5),
+                                     ("late", -20, -20, -10)):
+            self.set_parameters({
+                "HELI_BANK_SPD_25": o25,
+                "HELI_BANK_SPD_50": o50,
+                "HELI_BANK_SPD_75": o75,
+            })
+            results[label] = self.bank_steer_probe_segment(1440, 2000, "curve-%s" % label)
+        self.progress("CURVE results: early=%.1f linear=%.1f late=%.1f deg/s" %
+                      (results["early"], results["linear"], results["late"]))
+        if not (results["early"] > results["linear"] * 1.1):
+            raise NotAchievedException("early curve not stronger than linear (%.1f vs %.1f)" %
+                                       (results["early"], results["linear"]))
+        if not (results["linear"] > results["late"] * 1.2):
+            raise NotAchievedException("linear not stronger than late curve (%.1f vs %.1f)" %
+                                       (results["linear"], results["late"]))
+        self.set_parameters({
+            "HELI_BANK_SPD_25": 0,
+            "HELI_BANK_SPD_50": 0,
+            "HELI_BANK_SPD_75": 0,
+        })
         self.bank_steer_stop_and_land()
 
     def BankSteerDisabled(self):
@@ -1339,6 +1374,7 @@ class AutoTestHelicopter(AutoTestCopter):
             self.PosHoldTakeOff,
             self.StabilizeTakeOff,
             self.BankSteerProbe,
+            self.BankSteerCurveProbe,
             self.BankSteerDisabled,
             self.BankSteerAssist,
             self.SplineWaypoint,
