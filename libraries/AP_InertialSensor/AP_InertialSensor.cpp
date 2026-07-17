@@ -37,6 +37,8 @@
 #include "AP_InertialSensor_ADIS1647x.h"
 #include "AP_InertialSensor_ExternalAHRS.h"
 #include "AP_InertialSensor_Invensensev3.h"
+#include "AP_InertialSensor_QMI8658A.h"
+#include "AP_InertialSensor_HXY42688.h"
 #include "AP_InertialSensor_NONE.h"
 #include "AP_InertialSensor_SCHA63T.h"
 #include <AP_Scheduler/AP_Scheduler.h>
