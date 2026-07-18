@@ -167,7 +167,7 @@ bool AP_InertialSensor_QMI8658A::init()
 
 bool AP_InertialSensor_QMI8658A::regs_check_out()
 {
-    for (int i = 0; i < sizeof(AP_InertialSensor_QMI8658A::COMM_REGS)/sizeof(AP_InertialSensor_QMI8658A::COMM_REGS[0]); ++i) {
+    for (size_t i = 0; i < sizeof(AP_InertialSensor_QMI8658A::COMM_REGS)/sizeof(AP_InertialSensor_QMI8658A::COMM_REGS[0]); ++i) {
         uint8_t reg = AP_InertialSensor_QMI8658A::COMM_REGS[i][0];
         uint8_t value = read_register(reg);
         if (value != AP_InertialSensor_QMI8658A::COMM_REGS[i][1]) {
