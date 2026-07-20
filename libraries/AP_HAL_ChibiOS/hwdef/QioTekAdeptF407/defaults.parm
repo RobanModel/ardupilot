@@ -24,3 +24,19 @@ BRD_SAFETY_DEFLT 0
 
 # CKS32 SD card reliability
 BRD_SD_SLOWDOWN 6
+
+# --- Coordinated turn assist (HELI_BANK) tuned preset ---
+# Ships OFF: HELI_BANK_STEER 0. Pilot enables by setting STEER=1.
+# Baked as embedded defaults => applied only to params ABSENT from storage
+# (fresh/DFU-wiped board, or first update from a build without these params);
+# never overwrites a value a pilot has already stored.
+HELI_BANK_STEER 0
+HELI_BANK_GAIN 2
+HELI_BANK_YAWMAX 40
+HELI_BANK_BLEND 50
+HELI_BANK_DB 5
+HELI_BANK_SPD 0.5
+HELI_BANK_SPDFUL 4
+HELI_BANK_SPD_25 40
+HELI_BANK_SPD_50 65
+HELI_BANK_SPD_75 80
