@@ -195,7 +195,7 @@ bool AP_InertialSensor_HXY42688::_regs_check_out()
     write_register(0x7F, 0x00);//goto 0x00
     hal.scheduler->delay(1);
 
-    for (int i = 0; i < sizeof(AP_InertialSensor_HXY42688::COMM_REGS)/sizeof(AP_InertialSensor_HXY42688::COMM_REGS[0]); ++i) {
+    for (size_t i = 0; i < sizeof(AP_InertialSensor_HXY42688::COMM_REGS)/sizeof(AP_InertialSensor_HXY42688::COMM_REGS[0]); ++i) {
         uint8_t reg = AP_InertialSensor_HXY42688::COMM_REGS[i][0];
         uint8_t value = read_register(reg);
         if (reg == 0x40 || reg == 0x42) {
