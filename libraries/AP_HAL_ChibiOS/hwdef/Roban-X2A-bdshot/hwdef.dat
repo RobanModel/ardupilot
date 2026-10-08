@@ -1,0 +1,20 @@
+# hw definition file for processing by chibios_hwdef.py
+# Bidirectional DShot version of Roban-X2A (CKS32F407): same board ID and bootloader.
+# Outputs 9 and 11 (TIM4_CH1/CH3, DMA1 S0/S7) read RPM back from the ESC;
+# the main ESC (HeliRSC) goes on output 9, a DDFP tail ESC on 11. TIM4_CH2
+# shares DMA1 S3 with SPI2_RX and TIM4_CH4 has no DMA on F4, so outputs
+# 10/12 stay plain DShot/PWM. DShot on any of 9-12
+# turns the whole TIM4 group (9-12) to DShot.
+
+include ../Roban-X2A/hwdef.dat
+
+undef PD12 PD13 PD14 PD15
+
+PD12 TIM4_CH1 TIM4 PWM(9)  GPIO(58) BIDIR
+PD13 TIM4_CH2 TIM4 PWM(10) GPIO(59)
+PD14 TIM4_CH3 TIM4 PWM(11) GPIO(60) BIDIR
+PD15 TIM4_CH4 TIM4 PWM(12) GPIO(61)
+
+# TIM4 shares DMA1 S0/S7 with I2C1/I2C2 (the F4 I2C driver needs DMA, so an
+# exclusive TIM4 allocation does not build); give TIM4 priority instead.
+DMA_PRIORITY TIM4*
