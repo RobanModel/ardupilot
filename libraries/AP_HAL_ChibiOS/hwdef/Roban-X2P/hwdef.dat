@@ -250,3 +250,7 @@ define AP_GPS_MAV_ENABLED 1
 # minimize_features.inc disables it; re-enable
 undef HAL_CRSF_TELEM_ENABLED
 define HAL_CRSF_TELEM_ENABLED 1
+
+# Safety switch off by default (the vendor defaults.parm set BRD_SAFETY_DEFLT 0;
+# without it HAL_HAVE_SAFETY_SWITCH makes the default 1 = button required)
+define BOARD_SAFETY_ENABLE_DEFAULT 0
