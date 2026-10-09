@@ -5,6 +5,8 @@
 #include <AP_DAL/AP_DAL.h>
 #include <GCS_MAVLink/GCS.h>
 
+#define P (const_cast<const Matrix24 &>(Pmut))
+
 // Check basic filter health metrics and return a consolidated health status
 bool NavEKF3_core::healthy(void) const
 {
@@ -160,38 +162,6 @@ void NavEKF3_core::getRotationBodyToNED(Matrix3f &mat) const
 void NavEKF3_core::getQuaternion(Quaternion& ret) const
 {
     ret = outputDataNew.quat.tofloat();
-}
-
-// return the amount of yaw angle change due to the last yaw angle reset in radians
-// returns the time of the last yaw angle reset or 0 if no reset has ever occurred
-uint32_t NavEKF3_core::getLastYawResetAngle(float &yawAng) const
-{
-    yawAng = yawResetAngle;
-    return lastYawReset_ms;
-}
-
-// return the amount of NE position change due to the last position reset in metres
-// returns the time of the last reset or 0 if no reset has ever occurred
-uint32_t NavEKF3_core::getLastPosNorthEastReset(Vector2f &pos) const
-{
-    pos = posResetNE.tofloat();
-    return lastPosReset_ms;
-}
-
-// return the amount of vertical position change due to the last vertical position reset in metres
-// returns the time of the last reset or 0 if no reset has ever occurred
-uint32_t NavEKF3_core::getLastPosDownReset(float &posD) const
-{
-    posD = posResetD;
-    return lastPosResetD_ms;
-}
-
-// return the amount of NE velocity change due to the last velocity reset in metres/sec
-// returns the time of the last reset or 0 if no reset has ever occurred
-uint32_t NavEKF3_core::getLastVelNorthEastReset(Vector2f &vel) const
-{
-    vel = velResetNE.tofloat();
-    return lastVelReset_ms;
 }
 
 // return the NED wind speed estimates in m/s (positive is air moving in the direction of the axis)
@@ -408,8 +378,9 @@ void NavEKF3_core::getEkfControlLimits(float &ekfGndSpdLimit, float &ekfNavVelGa
     if (PV_AidingMode == AID_RELATIVE && relyingOnFlowData) {
         // allow 1.0 rad/sec margin for angular motion
         ekfGndSpdLimit = MAX((frontend->_maxFlowRate - 1.0f), 0.0f) * MAX((terrainState - stateStruct.position[2]), rngOnGnd);
-        // use standard gains up to 5.0 metres height and reduce above that
-        ekfNavVelGainScaler = 4.0f / MAX((terrainState - stateStruct.position[2]),4.0f);
+        // reduce the nav gain above _flowNavGainHgt to allow for flow velocity noise that grows with height
+        const ftype gainHgt = MAX(frontend->_flowNavGainHgt.get(), 1.0f);
+        ekfNavVelGainScaler = gainHgt / MAX((terrainState - stateStruct.position[2]), gainHgt);
     } else {
         ekfGndSpdLimit = 400.0f; //return 80% of max filter speed
         ekfNavVelGainScaler = 1.0f;

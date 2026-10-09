@@ -210,7 +210,7 @@ const AP_Param::GroupInfo RC_Channel::var_info[] = {
     // @Values{Rover, Plane}: 106:Disable Airspeed Use
     // @Values{Plane}: 107:Enable FW Autotune
     // @Values{Plane}: 108:QRTL Mode
-    // @Values{Copter}: 109:use Custom Controller
+    // @Values{Copter, Plane}: 109:use Custom Controller
     // @Values{Copter, Rover, Plane, Blimp, Sub}:  110:KillIMU3
     // @Values{Copter, Rover, Plane, Blimp, Sub}:  111:Loweheiser starter
     // @Values{Copter,Plane,Rover,Blimp,Sub,Tracker}: 112:SwitchExternalAHRS
@@ -1297,11 +1297,7 @@ void RC_Channel::do_aux_function_fence(const AuxSwitchPos ch_flag)
 void RC_Channel::do_aux_function_clear_wp(const AuxSwitchPos ch_flag)
 {
     if (ch_flag == AuxSwitchPos::HIGH) {
-        AP_Mission *mission = AP::mission();
-        if (mission == nullptr) {
-            return;
-        }
-        mission->clear();
+        AP::mission().clear();
     }
 }
 #endif  // AP_MISSION_ENABLED
@@ -1409,11 +1405,7 @@ void RC_Channel::do_aux_function_mission_reset(const AuxSwitchPos ch_flag)
     if (ch_flag != AuxSwitchPos::HIGH) {
         return;
     }
-    AP_Mission *mission = AP::mission();
-    if (mission == nullptr) {
-        return;
-    }
-    mission->reset();
+    AP::mission().reset();
 }
 #endif
 
@@ -1666,18 +1658,15 @@ bool RC_Channel::do_aux_function(const AuxFuncTrigger &trigger)
 
 #if AP_AIRSPEED_ENABLED
     case AUX_FUNC::DISABLE_AIRSPEED_USE: {
-        AP_Airspeed *airspeed = AP::airspeed();
-        if (airspeed == nullptr) {
-            break;
-        }
+        AP_Airspeed &airspeed = AP::airspeed();
         switch (ch_flag) {
         case AuxSwitchPos::HIGH:
-            airspeed->force_disable_use(true);
+            airspeed.force_disable_use(true);
             break;
         case AuxSwitchPos::MIDDLE:
             break;
         case AuxSwitchPos::LOW:
-            airspeed->force_disable_use(false);
+            airspeed.force_disable_use(false);
             break;
         }
         break;
@@ -2157,21 +2146,6 @@ bool RC_Channels::duplicate_options_exist()
         used_auxsw_options.set(option);
     }
     return false;
-}
-
-// convert option parameter from old to new
-void RC_Channels::convert_options(const RC_Channel::AUX_FUNC old_option, const RC_Channel::AUX_FUNC new_option)
-{
-    for (uint8_t i=0; i<NUM_RC_CHANNELS; i++) {
-        RC_Channel *c = channel(i);
-        if (c == nullptr) {
-            // odd?
-            continue;
-        }
-        if ((RC_Channel::AUX_FUNC)c->option.get() == old_option) {
-            c->option.set_and_save((int16_t)new_option);
-        }
-    }
 }
 
 #endif  // AP_RC_CHANNEL_ENABLED

@@ -306,7 +306,7 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
     // @Param: TYPE
     // @DisplayName: Board type
     // @Description: This allows selection of a PX4 or VRBRAIN board type. If set to zero then the board type is auto-detected (PX4)
-    // @Values: 0:AUTO,1:PX4V1,2:Pixhawk,3:Cube/Pixhawk2,5:PixhawkMini,6:Pixhawk2Slim,13:Intel Aero FC,14:Pixhawk Pro,20:AUAV2.1,39:PX4 FMUV6,100:PX4 OLDDRIVERS
+    // @Values: 0:AUTO,1:PX4V1,2:Pixhawk,3:Cube/Pixhawk2,5:PixhawkMini,6:Pixhawk2Slim,14:Pixhawk Pro,20:AUAV2.1,39:PX4 FMUV6,100:PX4 OLDDRIVERS
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("TYPE", 9, AP_BoardConfig, state.board_type, BOARD_TYPE_DEFAULT),
@@ -495,9 +495,6 @@ const AP_Param::GroupInfo AP_BoardConfig::var_info[] = {
 
 void AP_BoardConfig::init()
 {
-    // PARAMETER_CONVERSION - Added: APR-2022
-    vehicleSerialNumber.convert_parameter_width(AP_PARAM_INT16);
-
     board_setup();
 
 #if AP_RTC_ENABLED
@@ -505,7 +502,7 @@ void AP_BoardConfig::init()
 #endif
 
     if (_boot_delay_ms > 0) {
-        uint16_t delay_ms = uint16_t(_boot_delay_ms.get());
+        uint16_t delay_ms = _boot_delay_ms;
         if (hal.util->was_watchdog_armed() && delay_ms > 200) {
             // don't delay a long time on watchdog reset, the pilot
             // may be able to save the vehicle
